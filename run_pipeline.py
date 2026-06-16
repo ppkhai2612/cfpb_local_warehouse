@@ -6,9 +6,9 @@ This is an end-to-end ELT pipeline that
     - Extracts data from START_DATE once (initial load)
     - Then appends data for each new day (incremental loads)
     - Works for companies configured in src/config.py
-    - Loaded data is stored in MinIO (data partitioned by the EL process's run date)
+    - Raw data is stored in MinIO (data partitioned by date)
 2. Transform (T)
-    - To begin the transformation, data from MinIO will be loaded into DuckDB, using dbt as transformation layer
+    - For transformation, data from MinIO will be loaded into DuckDB, using dbt as transformation layer
     - Runs dbt models (staging -> intermediate -> marts)
     - Creates fact, dimension, and aggregation tables in DuckDB
 3. Tests
