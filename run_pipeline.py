@@ -15,11 +15,14 @@ This is an end-to-end ELT pipeline that
     - If dbt run successfully, performs data quality checks with dbt tests
 
 Usage:
-    python run_pipeline.py [--reset-state]
+    python run_pipeline.py [--database DATABASE_PATH] [--reset-state]
 
 Examples:
-    # Run the pipeline (incremental load + dbt transformations)
+    # Run the pipeline
     python run_pipeline.py
+
+    # Use a different database file
+    python run_pipeline.py --database my_database.duckdb
 
     # Reset state that reload all data from START_DATE
     python run_pipeline.py --reset-state
@@ -31,8 +34,8 @@ import logging
 from pathlib import Path
 
 # Add src to path
-sys.path.insert(0, str(Path(__file__).parent / "src"))
-from src.airflow.dags.cfpb_complaint_dag import cfpb_complaint_daily_dag
+sys.path.insert(0, str(Path(__file__).parent / "airflow"))
+from dags.cfpb_complaint_dag import cfpb_complaint_daily_dag
 
 # Configure logging
 logging.basicConfig(
@@ -46,12 +49,19 @@ def main():
     """Main entrypoint for the Airflow DAG"""
     parser = argparse.ArgumentParser()
     parser.add_argument(
+        "--database",
+        type=str,
+        default="database/cfpb_complaints.duckdb",
+        help="Path to the DuckDB database file (default: database/cfpb_complaints.duckdb)"
+    )
+    parser.add_argument(
         "--reset-state",
         action="store_true",
         help="Reset state file to trigger initial load from START_DATE"
     )
 
     args = parser.parse_args()
+
     if args.reset_state:
         
         from src.utils.state import reset_state
@@ -62,7 +72,9 @@ def main():
     
     try:
         logger.info("Starting ELT pipeline")
-        result = cfpb_complaint_daily_dag()
+        result = cfpb_complaint_daily_dag(
+            database_path=args.database
+        )
 
         # Handle the case where the pipeline returns None
         if result is None:
