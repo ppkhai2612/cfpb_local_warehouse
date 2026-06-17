@@ -1,29 +1,55 @@
-# Local Lakehouse Pipeline for Complaint Data
+# Local Warehouse for CFPB Complaint Data
 
-This project implements a **local pipeline** that retrieves consumer **complaint data** from the CFPB API, this data, then, is stored in a **data lakehouse** (MinIO + Iceberg). The data in the lakehouse can be in raw format for auditing or transformed to serve business use cases such as advanced analytics, reporting, etc
+This project implements a pipeline that retrieves **consumer complaint data** from the CFPB API, this data then is stored in a **local data warehouse**. dbt is used to transform data into analytics-ready models, and serves interactive dashboards
 
-## Data Stacks & Architecture
+* **Python Package Manager**: [uv](https://docs.astral.sh/uv/)
+* **Data Ingestion**: [dlt](https://dlthub.com/product/dlt) + [PyArrow](https://arrow.apache.org/docs/python/index.html)
+* **Raw Data Storage**: [MinIO](https://www.min.io/) (raw data in [Parquet](https://parquet.apache.org/) format)
+* **Transformation**: [dbt-core](https://www.getdbt.com/) & [dbt-colibri](https://www.colibri-data.com/)
+* **OLAP Database**: [DuckDB](https://duckdb.org/)
+* **Orchestration**: [Airflow](https://airflow.apache.org/)
+* **BI Tool**: [Streamlit](https://streamlit.io/)
 
-1. **MinIO** for object storage
-2. **Iceberg** for open table format
-3. **Nessie** for Iceberg catalog
-4. **dbt** for transformation logic
-5. **Spark** for ingestion & compute engine
-6. **Airflow** for orchestration
-7. **Docker** for containerization
+## How to run the pipeline
 
-## Quick Start
+1. **Install Python dependencies**: `uv sync --extra dev`
+2. **Configuration setting**: Edit `src/cfpb/config.py` to configure `START_DATE`, which is the date the data is included in. **Recommended**: `START_DATE` should be within the last three years from today to ensure the data is not stale. Example
 
-`make build`: build container images
+    ```python
+    START_DATE = "2026-06-01"
+    ```
 
-To start up the pipeline, run `make start`
+3. **Run pipeline**
 
-`make run`: run pipeline
+4. **Run backfill pipeline** (optional running if you need to reprocess historical data for analytics)
+- 
 
-`make stop`: Stop services and clean up volumes
+5. **Testing**
+
+```bash
+# Run Python tests
+`uv run pytest tests/`
+```
+
+
 
 ## Access UIs
 
 - MinIO Console: http://localhost:9001
 - Spark Web UI: http://localhost:8080
 - Airflow Web UI: http://localhost:8081
+
+
+## Testing
+
+Running etl.py script either one or two ways
+- python -m src.etl.etl
+or 
+```python
+export PYTHONPATH=$(pwd)
+python src/etl/etl.py
+```
+
+
+
+
