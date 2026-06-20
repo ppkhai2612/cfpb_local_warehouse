@@ -134,7 +134,6 @@ class CFPBClient:
 
         while True:
             try:
-                
                 if search_after:
                     params["search_after"] = search_after
 
