@@ -1,0 +1,43 @@
+models:
+  - name: stg_cfpb__complaints
+    description: Staged CFPB complaints with type casting
+    columns:
+      - name: complaint_id
+        description: Unique identifier for each complaint
+        data_tests:
+          - unique
+          - not_null
+      - name: product
+        description: The type of financial product related to complaint
+      - name: sub_product
+        description: The specific sub-product of the financial product
+      - name: issue
+        description: The issue the consumer identified in the complaint
+      - name: sub_issue
+        description: The sub-issue the consumer identified in the complaint
+      - name: company
+        description: The company the consumer complaint was sent to
+      - name: state
+        description: Two-letter postal abbreviation of the state of the consumer
+      - name: zip_code
+        description: The mailing ZIP code provided by the consumer
+      - name: submitted_via
+        description: How the complaint was submitted to the CFPB
+      - name: company_response
+        description: How the company responded
+      - name: company_public_response
+        description: Public-facing response to a consumer's complaint
+      - name: date_received
+        description: The date the complaint was received by the CFPB
+      - name: date_sent_to_company
+        description: The date the CFPB sent the complaint to the company
+      - name: timely
+        description: Whether the company's response was timely
+      - name: has_narrative
+        description: Whether consumers consent to publishing the description (true or false)
+      - name: complaint_what_happened
+        description: The description of "what happened" from the complaint
+      - name: tags
+        description: Data that supports easier searching and sorting of complaints
+      - name: dbt_extracted_at
+        description: Timestamp at which raw data is ingested into DuckDB
