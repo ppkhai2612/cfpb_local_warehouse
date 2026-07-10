@@ -1,0 +1,31 @@
+services:
+  
+  minio:
+    image: quay.io/minio/aistor/minio:RELEASE.2025-12-20T04-58-37Z.hotfix.f7bac107f3ff.fips
+    container_name: minio
+    environment:
+      - MINIO_ROOT_USER=${MINIO_ROOT_USER:-minioadmin} # root username
+      - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD:-minioadmin} # root password
+      - MINIO_DOMAIN=minio # enable virtual-host-style access
+    volumes:
+      - minio-data:/mnt/data
+      - $HOME/minio/minio.license:/minio.license
+    ports:
+      - 9001:9001 # MinIO Console
+      - 9000:9000 # S3 API
+    entrypoint: >
+      /bin/sh -c "
+      minio server /mnt/data --console-address :9001 --license /minio.license &
+      until mc alias set minio http://minio:9000 ${MINIO_ROOT_USER:-minioadmin} ${MINIO_ROOT_PASSWORD:-minioadmin};
+      do
+        echo 'Waiting for MinIO server...';
+        sleep 1;
+      done;
+      for bucket in raw bronze; do
+        mc mb --ignore-existing "minio/$$bucket"
+      done;
+      tail -f /dev/null;
+      "
+
+volumes:
+  minio-data:
