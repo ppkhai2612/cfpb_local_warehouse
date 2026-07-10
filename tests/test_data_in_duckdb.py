@@ -33,7 +33,7 @@ def schema_name():
 @pytest.fixture
 def table_name():
     """Table name where data is stored."""
-    return "cpfb_complaints"
+    return "cfpb_complaints"
 
 
 # Test classes
