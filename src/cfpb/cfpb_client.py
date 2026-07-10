@@ -49,7 +49,7 @@ class CFPBClient:
         session = requests.Session()
         # Mount the HTTP adapter with retry configuration
         session.mount("https://www.consumerfinance.gov/", HTTPAdapter(max_retries=retries))
-        # Set headers
+        # headers are attached when making a request
         session.headers.update({
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
             "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36",
@@ -77,8 +77,8 @@ class CFPBClient:
 
     def get_complaints(
             self,
-            date_received_min: str | None = None,
-            date_received_max: str | None = None,
+            date_received_min,
+            date_received_max,
             company: str | None = None,
             sort: str = "created_date_desc",
             no_aggs: bool = True
@@ -94,8 +94,8 @@ class CFPBClient:
                 Default to created_date_desc
             no_aggs (bool): Disable aggregations in result. Default to True
         
-        Returns:
-            list: list of complaints or an empty list if no records were found
+        Yields:
+            The same with 
 
         Raises:
             requests.RequestException if the request fails
@@ -110,13 +110,13 @@ class CFPBClient:
         if company:
             params["company"] = company
 
-        return self.get_complaints_pagination(params)
+        yield from self.get_complaints_pagination(params)
 
     def get_complaints_pagination(
             self,
             params: dict[str, Any],
             search_after: str | None = None,
-            size: int | None = 10000
+            size: int | None = 5000
         ) -> list[dict[str, Any]]:
         """Fetch complaints with cursor-based pagination support
         
@@ -125,32 +125,42 @@ class CFPBClient:
             search_after (str): Parameter for paginate results (combined with size)
             size (int): Parameter for paginate results (combined with search_after). Default to 10000
 
-        Returns:
-            list: list of complaints or an empty list if no records were found
+        Yields:
+            A chunk of "size" records at a time. If the chunk is less than "size", function yields all remaining records
+            Returns None if there are no more records to yield
         """
 
-        params["size"] = size
-        all_complaints = []
+        params["size"] = size # size per page
+        chunk = []
+        expected_count = None
+        actual_count = 0
 
         while True:
             try:
-                if search_after:
+                if search_after: # cursor
                     params["search_after"] = search_after
 
                 # request
                 response = self.session.get(self.BASE_URL, params=params, timeout=self.timeout)
                 data = response.json()
+
+                # expected no. records to fetch
+                if expected_count is None:
+                    expected_count = data.get("hits", {}).get("total", {}).get("value", 0)
+
                 data = {k: data[k] for k in list(data)[1:]}
                 hits = data.get("hits", {}).get("hits", [])
-                complaints = [hit.get("_source", {}) for hit in hits]
                 if not hits: # no records
                     break
 
-                total_available_complaints = data.get("hits", {}).get("total", {}).get("value", 0)
-                all_complaints.extend(complaints)
-                if len(all_complaints) >= total_available_complaints: # no more complaints to fetch
-                    break
-                
+                complaints = [hit.get("_source", {}) for hit in hits]
+                chunk.extend(complaints) # list of complaints
+                actual_count += len(complaints) # update actual count
+
+                if len(chunk) >= size: # if chunk reaches 5000
+                    yield chunk
+                    chunk = [] # reset chunk
+
                 # update search_after for subsequent API call
                 search_after_lst = hits[-1].get("sort", [])
                 search_after_lst[0] = str(search_after_lst[0])
@@ -161,8 +171,15 @@ class CFPBClient:
                 logger.error(f"Error when fetching complaints: {e}")
                 raise
 
-        logger.info(f"Total complaints fetched: {len(all_complaints)}")
-        return all_complaints
+        # yield the remaining records
+        if chunk:
+            yield chunk
+
+        # check if all records have been fetched
+        if actual_count == expected_count:
+            logger.info(f"DONE! All {actual_count}/{expected_count} records fetched")
+        else:
+            logger.warning(f"NOT DONE! Expected count: {expected_count}. Actual count: {actual_count}.")
 
     def get_complaints_by_company(
         self,
@@ -192,15 +209,24 @@ class CFPBClient:
             self.session.close()
 
 
-# if __name__ == "__main__":
-#     client = CFPBClient()
-#     complaints = client.get_complaints(
-#         date_received_min="2026-04-01",
-#         date_received_max="2026-04-01",
-#         company="Kriya Capital, LLC"
-#     )
+if __name__ == "__main__":
+    client = CFPBClient()
+    # complaints = client.get_complaints(
+    #     date_received_min="2026-04-01",
+    #     date_received_max="2026-04-01",
+    #     company="Kriya Capital, LLC"
+    # )
+    complaints = client.get_complaints(
+        date_received_min="2026-04-01",
+        date_received_max="2026-04-01",
+    )
 
-#     with open("output.json", "w", encoding="utf-8") as f:
-#         json.dump(complaints, f, indent=4, ensure_ascii=False)
-#     print(len(complaints))
-#     client.close()
+    # with open("output.jsonl", "w", encoding="utf-8") as f:
+    #     for complaint in complaints:
+    #         f.write(json.dumps(complaint, ensure_ascii=False) + "\n")
+
+    with open("debug_data.json", "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=4)
+
+    # print(len(complaints))
+    client.close()
