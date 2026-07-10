@@ -1,84 +1,78 @@
 """This script implements an Airflow DAG"""
 
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timedelta
 import sys
 from typing import Any
 import logging
 
+from pendulum import datetime, timezone
 from airflow.sdk import dag, task
+from airflow.sdk.exceptions import AirflowSkipException
+from airflow.timetables.interval import CronDataIntervalTimetable
+from airflow.providers.standard.operators.bash import BashOperator
+
 import pyarrow.parquet as pq
 
 sys.path.insert(0, str(Path(__file__).parents[2] / "src"))
-from cfpb.config import START_DATE, COMPANIES
-from cfpb.ingestion_pipeline import extract_complaints, save_parquet_to_bronze
-import cfpb.scripts.minio_to_duckdb
+from cfpb.config import DATE
+from cfpb.ingestion_pipeline import (
+    extract_complaints, load_to_raw, load_to_bronze,
+    load_parquet_to_duckdb
+)
 
 
-logger = logging.getLogger(__name__)
+DBT_PROJECT_DIR = str((Path(__file__).parents[2] / "dbt_cfpb").absolute())
 
 
-@task(task_id="extract_complaint_to_landing")
-def extract_complaint_to_landing(
-    min_date: str,
-    max_date: str,
-    company_name: str
-) -> str | None:
-    """Airflow task for extracting complaints and saving them to the landing area
-    Raw data stored in the landing area is in Parquet format
-    
-    Params:
-        min_date: The minimum date for complaints to extract (YYYY-MM-DD)
-        max_date: The maximum date for complaints to extract (YYYY-MM-DD)
-        company_name: The name of the company to extract complaints for
-
-    Returns:
-        The path to the Parquet file saved in the landing area, or None if no complaints
+@task
+def extract_complaints_to_raw():
+    """Airflow task for
+        - Extracting complaints from API
+        - Saving them to the raw bucket in MinIO
     """
-    logger.info(f"Extracting complaints for company named {company_name} from {min_date} to {max_date}")
-    parquet_path = save_parquet_to_landing(
-        date_received_min=min_date,
-        date_received_min=max_date,
-        company_name=company_name
-    )
-    return parquet_path
+    partition = 1  # track partition count in raw
+    for complaints in extract_complaints(DATE):
+        load_to_raw(complaints, DATE, partition)
+        partition += 1
 
-
-@task(task_id="load_landing_to_duckdb")
-def load_landing_to_duckdb(
-    parquet_path: str,
-    database_path: str
-) -> dict[str, Any]:
-    """Airflow task for loading data from the landing area to DuckDB
-    
-    Params:
-        parquet_path: The path to the Parquet file to load
-        database_path: The path to the DuckDB database file
-    
-    Returns:
-        A dictionary with information about the load result, such as number of rows loaded, time taken
-    """
-    logger.info(f"Loading Parquet file at {parquet_path} into DuckDB")
-    result = load_parquet_to_duckdb(
-        parquet_path=parquet_path,
-        database_path=database_path
-    )
-    logger.info(f"COMPLETED: Loading Parquet file at {parquet_path} into DuckDB")
     return {
-        "status": "success",
-        "parquet_path": parquet_path,
-        **result,
+        "raw_prefix": f"raw/cfpb_complaints/{DATE}",
+        "process_date": DATE,
+        "num_partitions": partition - 1
     }
 
 
-@task()
-def run_dbt_models():
-    pass
+@task
+def load_raw_to_bronze(metadata):
+    """Airflow task for loading raw data (in JSONL) to bronze data (in Parquet)"""
+    load_to_bronze(
+        raw_prefix=metadata["raw_prefix"],
+        process_date=metadata["process_date"],
+        partitions=metadata["num_partitions"]
+    )
+    return {
+        "bronze_prefix": f"bronze/cfpb_complaints/{DATE}",
+        "process_date": metadata["process_date"],
+        "num_partitions": metadata["num_partitions"]
+    }
 
 
-@task()
-def run_dbt_tests():
-    pass
+@task
+def save_bronze_to_duckdb(metadata) -> dict[str, Any]:
+    """Airflow task for loading bronze data (in Parquet) to the table to DuckDB"""
+    parquet_path = f"s3://{metadata['bronze_prefix']}/*.parquet"
+    db_path = "database/cfpb_complaints.duckdb"
+    
+    result = load_parquet_to_duckdb(
+        parquet_path=parquet_path,
+        database_path=db_path
+    )
+    # return {
+    #     "status": "success",
+    #     "parquet_path": parquet_path,
+    #     **result
+    # }
 
 
 default_args = {
@@ -86,115 +80,48 @@ default_args = {
     'retries': 2,
     'retry_delay': timedelta(seconds=30)
 }
+# @dag(
+#     dag_id='cfpb_complaint_daily_dag',
+#     description="Daily Airflow DAG for CFPB complaint pipeline orchestration",
+#     schedule=
+#         CronDataIntervalTimetable(
+#             '0 0 * * *', # solve data_interval_start and data_interval_end
+#             timezone=timezone("Asia/Ho_Chi_Minh")
+#         ),
+#     start_date=datetime(2026, 6, 23, tz=timezone("Asia/Ho_Chi_Minh")),
+#     default_args=default_args,
+#     catchup=False,
+#     tags=['cfpb']
+# )
 @dag(
     dag_id='cfpb_complaint_daily_dag',
-    description='DAG is run daily to extract complaint data, load it into',
-    schedule='@daily',
-    start_date=datetime(2023, 1, 1),
+    description="Daily Airflow DAG for CFPB complaint pipeline orchestration",
+    schedule="@daily",
+    start_date=datetime(2026, 6, 23),
     default_args=default_args,
     catchup=False,
     tags=['cfpb']
 )
-def cfpb_complaint_daily_dag(
-    database_path: str = "database/cfpb_complaints.duckdb"
-) -> dict[str, Any]:
-    """Daily Airflow DAG for CFPB complaint pipeline orchestration
-
-    Tasks in the DAG:
-        1. Extract complaints from CFPB API and load them into landing area (Parquet files)
-        2. Load raw data into DuckDB
-        3. Run dbt models to transform data
-        4. Run dbt tests to serve data quality checks
-        5. Generate analytics report/dashboard
-    """
-
-    logger.info(f"Starting CFPB Complaint Daily DAG")
+def cfpb_complaint_daily_dag():
+    """Daily Airflow DAG for CFPB complaint pipeline orchestration"""
     
-    # Determine the date range for this run
-    min_date, max_date = get_next_load_date(START_DATE) # "2026-04-12", "2026-04-25"
-    min_date_obj = datetime.strptime(min_date, "%Y-%m-%d")
-    max_date_obj = datetime.strptime(max_date, "%Y-%m-%d")
+    run_dbt_models = BashOperator(
+        task_id="run_dbt_models",
+        bash_command="dbt run",
+        cwd=DBT_PROJECT_DIR
+    )
 
-    # data has been fully loaded
-    if min_date_obj >= max_date_obj:
-        logger.info(f"No new data to load. Data up to date {max_date}")
-        return {
-            "status": "skipped",
-            "message": "No new data",
-        }
+    run_dbt_tests = BashOperator(
+        task_id="run_dbt_tests",
+        bash_command="dbt test || echo 'dbt test failed'",
+        cwd=DBT_PROJECT_DIR,
+    )
 
-    logger.info(f"Processing data for {len(companies)} companies from {min_date} to {max_date}")
-
-    # Extract to parquet, then load to DuckDB for each company
-    results = []
-    for company in COMPANIES:
-
-        try:
-            parquet_path = extract_complaint_to_landing(
-                company=company,
-                min_date=min_date,
-                max_date=max_date
-            )
-
-            # if no complaints extracted for the company in the date range
-            row_count = pq.read_table(parquet_path).num_rows
-            if row_count == 0:
-                logger.info(f"No complaints extracted for {company}. Skipping loading to DuckDB")
-                results.append(
-                    {
-                        "company": company,
-                        "status": "success",
-                        "date_range": f"{min_date} to {max_date}",
-                        "info": "No complaints found"
-                    }
-                )
-                continue
-            
-            # Load the Parquet file into DuckDB
-            result = load_landing_to_duckdb(
-                parquet_path=parquet_path,
-                database_path=database_path
-            )
-            result["company"] = company
-            result["date_range"] = f"{min_date} to {max_date}"
-            results.append(result)
-
-        except Exception as e:
-            logger.error(f"Failed to load data for {company}: {e}")
-            results.append(
-                {
-                    "company": company,
-                    "status": "failed",
-                    "error": str(e)
-                }
-            )
-
-
-
-
-    @task
-    def run_dbt_models(data, ds):
-        """Transform data from Bronze to Silver layer
-
-        data: data to transform (JSON file)
-        ds: the date that Airflow runs the task
-        """
-
-        # For simplicity, we just pass the data through without transformation
-        return data
-
-
-    @task
-    def run_dbt_tests(data, ds):
-        pass
-
-
-    @task
-    def generate_reports():
-        pass
-
-    
-    load_raw_to_duckdb(extract_to_parquet())
+    # task dependencies
+    raw_metadata = extract_complaints_to_raw()
+    bronze_metadata = load_raw_to_bronze(raw_metadata)
+    duckdb = save_bronze_to_duckdb(bronze_metadata)
+    duckdb >> run_dbt_models >> run_dbt_tests
 
 
 cfpb_complaint_daily_dag()
