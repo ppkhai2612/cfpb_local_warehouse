@@ -22,23 +22,35 @@ from cfpb.ingestion_pipeline import (
 )
 
 
-DBT_PROJECT_DIR = str((Path(__file__).parents[2] / "dbt_cfpb").absolute())
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+)
+logger = logging.getLogger(__name__)
+
+DBT_PROJECT_DIR = str((Path(__file__).parents[2] / "dbt_cfpb").absolute()) # dbt root directory
 
 
 @task
-def extract_complaints_to_raw():
+def extract_complaints_to_raw(**context):
     """Airflow task for
         - Extracting complaints from API
         - Saving them to the raw bucket in MinIO
     """
+
+    date = (context["logical_date"] - timedelta(days=1)).strftime("%Y-%m-%d") # the date to fetch data from the CFPB
+    logger.info(f"Running CFPB DAG for the date {date}")
+    # print(context["data_interval_start"])
+    # print(context["data_interval_end"])
+
     partition = 1  # track partition count in raw
-    for complaints in extract_complaints(DATE):
-        load_to_raw(complaints, DATE, partition)
+    for complaints in extract_complaints(date):
+        load_to_raw(complaints, date, partition)
         partition += 1
 
     return {
-        "raw_prefix": f"raw/cfpb_complaints/{DATE}",
-        "process_date": DATE,
+        "raw_prefix": f"raw/cfpb_complaints/{date}",
+        "process_date": date,
         "num_partitions": partition - 1
     }
 
@@ -52,7 +64,7 @@ def load_raw_to_bronze(metadata):
         partitions=metadata["num_partitions"]
     )
     return {
-        "bronze_prefix": f"bronze/cfpb_complaints/{DATE}",
+        "bronze_prefix": f"bronze/cfpb_complaints/{metadata['process_date']}",
         "process_date": metadata["process_date"],
         "num_partitions": metadata["num_partitions"]
     }
@@ -68,38 +80,20 @@ def save_bronze_to_duckdb(metadata) -> dict[str, Any]:
         parquet_path=parquet_path,
         database_path=db_path
     )
-    # return {
-    #     "status": "success",
-    #     "parquet_path": parquet_path,
-    #     **result
-    # }
-
+    
 
 default_args = {
     'owner': 'airflow',
     'retries': 2,
     'retry_delay': timedelta(seconds=30)
 }
-# @dag(
-#     dag_id='cfpb_complaint_daily_dag',
-#     description="Daily Airflow DAG for CFPB complaint pipeline orchestration",
-#     schedule=
-#         CronDataIntervalTimetable(
-#             '0 0 * * *', # solve data_interval_start and data_interval_end
-#             timezone=timezone("Asia/Ho_Chi_Minh")
-#         ),
-#     start_date=datetime(2026, 6, 23, tz=timezone("Asia/Ho_Chi_Minh")),
-#     default_args=default_args,
-#     catchup=False,
-#     tags=['cfpb']
-# )
 @dag(
     dag_id='cfpb_complaint_daily_dag',
     description="Daily Airflow DAG for CFPB complaint pipeline orchestration",
     schedule="@daily",
-    start_date=datetime(2026, 6, 23),
+    start_date=datetime(2026, 7, 7),
     default_args=default_args,
-    catchup=False,
+    catchup=True,
     tags=['cfpb']
 )
 def cfpb_complaint_daily_dag():
@@ -118,10 +112,11 @@ def cfpb_complaint_daily_dag():
     )
 
     # task dependencies
-    raw_metadata = extract_complaints_to_raw()
-    bronze_metadata = load_raw_to_bronze(raw_metadata)
-    duckdb = save_bronze_to_duckdb(bronze_metadata)
-    duckdb >> run_dbt_models >> run_dbt_tests
+    # raw_metadata = extract_complaints_to_raw()
+    # bronze_metadata = load_raw_to_bronze(raw_metadata)
+    # duckdb = save_bronze_to_duckdb(bronze_metadata)
+    # duckdb >> run_dbt_models >> run_dbt_tests
+    run_dbt_models >> run_dbt_tests
 
 
 cfpb_complaint_daily_dag()
