@@ -7,7 +7,7 @@ and loads it into DuckDB
 import logging
 import json
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 from collections.abc import Iterator
 from pathlib import Path
@@ -25,6 +25,27 @@ from .cfpb_client import CFPBClient
 logger = logging.getLogger(__name__)
 load_dotenv() # add env vars from .env to os.environ
 
+CFPB_SCHEMA = pa.schema([
+    ("product", pa.string()),
+    ("complaint_what_happened", pa.string()),
+    ("date_sent_to_company", pa.timestamp("ms", tz="UTC")),
+    ("issue", pa.string()),
+    ("sub_product", pa.string()),
+    ("zip_code", pa.string()),
+    ("tags", pa.string()),
+    ("has_narrative", pa.bool_()),
+    ("complaint_id", pa.int64()),
+    ("timely", pa.string()),
+    ("company_response", pa.string()),
+    ("submitted_via", pa.string()),
+    ("company", pa.string()),
+    ("date_received", pa.timestamp("ms", tz="UTC")),
+    ("state", pa.string()),
+    ("company_public_response", pa.string()),
+    ("sub_issue", pa.string()),
+    ("extracted_at", pa.timestamp("ms", tz="UTC"))
+])
+
 
 def extract_complaints(date) -> Iterator[list[dict[str, Any]]]:
     """Extract complaints from CFPB API by date
@@ -40,8 +61,11 @@ def extract_complaints(date) -> Iterator[list[dict[str, Any]]]:
     try:
     
         logger.info(f"Extracting all complaints for the date {date}")
-        extraction_timestamp = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
-        
+        # extraction_timestamp = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
+        extraction_timestamp = (datetime.now(timezone.utc)
+            .isoformat(timespec="milliseconds")
+            .replace("+00:00", "Z"))
+
         for chunk in client.get_complaints(date_received_min=date, date_received_max=date):
             
             # add "extracted_at" to each dict
@@ -110,11 +134,14 @@ def load_to_bronze(
         with minio_client.open_input_file(info.path) as f:
             table = pajson.read_json(f)
 
+        # normalize PyArrow table
+        table = normalize_table(table, CFPB_SCHEMA)
+
         # write data to bronze 
         output = (
             info.path
                 .replace("raw/", "bronze/")
-                .replace(".jsonl", "parquet")
+                .replace(".jsonl", ".parquet")
         )
         with minio_client.open_output_stream(output) as out:
             pq.write_table(table, out, compression="snappy")
@@ -156,7 +183,7 @@ def load_parquet_to_duckdb(
                 REGION 'us-east-1',
                 USE_SSL false,
                 ENDPOINT '{minio_endpoint}',
-                URL_STYLE 'path',
+                URL_STYLE 'path'
             );
             """
         )           
@@ -194,6 +221,27 @@ def load_parquet_to_duckdb(
     #     "total_records_in_table": total_count,
     #     "status": "success"
     # }
+
+
+def normalize_table(table: pa.Table, schema: pa.Schema) -> pa.Table:
+    """Normalize a PyArrow table to the target schema"""
+
+    arrays = []
+
+    for field in schema:
+        if field.name in table.column_names:
+            column = table[field.name]
+
+            # Cast nếu kiểu dữ liệu khác
+            if not column.type.equals(field.type):
+                column = column.cast(field.type)
+
+            arrays.append(column)
+        else:
+            # Nếu thiếu cột thì thêm cột null
+            arrays.append(pa.nulls(len(table), type=field.type))
+
+    return pa.Table.from_arrays(arrays, schema=schema)
 
 
 def _get_minio_fs():

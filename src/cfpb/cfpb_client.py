@@ -5,7 +5,7 @@ API docs: https://cfpb.github.io/api/ccdb/api.html
 """
 
 import logging
-from typing import Any
+from typing import Any, Iterator
 import json
 
 import requests
@@ -82,7 +82,7 @@ class CFPBClient:
             company: str | None = None,
             sort: str = "created_date_desc",
             no_aggs: bool = True
-        ) -> list[dict[str, Any]]:
+        ) -> Iterator:
         """Fetch complaints from the CFPB API
         
         Args:
@@ -117,7 +117,7 @@ class CFPBClient:
             params: dict[str, Any],
             search_after: str | None = None,
             size: int | None = 5000
-        ) -> list[dict[str, Any]]:
+        ) -> Iterator[list[dict[str, Any]]]:
         """Fetch complaints with cursor-based pagination support
         
         Args:
