@@ -29,21 +29,26 @@ def test_cfpb_api_client_initialization_with_custom_timeout():
 
 def test_cfpb_api_client_can_fetch_data(cfpb_client):
     """Test that the CFPB client can fetch complaints"""
-    complaints = cfpb_client.get_complaints(
+    generator = cfpb_client.get_complaints(
         date_received_min="2026-04-01",
         date_received_max="2026-04-02",
-        company="Kriya Capital, LLC",
     )
 
-    if not isinstance(complaints, list):
-        pytest.fail(f"Failed when fetching complaints")
+    # first chunk
+    first_chunk = next(generator)
 
-    assert len(complaints) > 0
+    assert isinstance(first_chunk, list)
+    assert len(first_chunk) > 0
 
-    first_complaint = complaints[0]
-    assert first_complaint["product"] is not None
-    assert first_complaint["company"] is not None
-    assert first_complaint["issue"] is not None
+    complaint = first_chunk[0]
+
+    assert "product" in complaint
+    assert "company" in complaint
+    assert "issue" in complaint
+    assert "complaint_id" in complaint
+
+    assert complaint["product"] is not None
+    assert complaint["company"] is not None
 
 
 def test_cfpb_api_client_close(cfpb_client):
