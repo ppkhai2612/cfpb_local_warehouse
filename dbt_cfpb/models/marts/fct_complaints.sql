@@ -21,7 +21,7 @@ with final as (
         date_sent_to_company,
         complaint_year,
         complaint_month,
-        complaint_month_date
+        complaint_month_date,
 
         -- metrics
         days_to_response,

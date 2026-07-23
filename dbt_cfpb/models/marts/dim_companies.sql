@@ -9,7 +9,7 @@ with company_stats as (
 
         -- percentages        
         round(countif(is_timely_response) / count(*) * 100.0, 2) as pct_timely,
-
+        round(100.0 * count_if(has_narrative) / count(*), 2) as pct_with_narrative,
 
         -- response time metrics
         round(avg(days_to_response), 2) as avg_days_to_response,
