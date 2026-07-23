@@ -20,6 +20,8 @@ The main dataset is the CFPB Consumer Complaint Database.
 
 ![Project architecture](images/architecture.png)
 
+> The decisions made when designing the pipeline are documented at [design.md](docs/design.md)
+
 ### Data Flow
 
 ```text
