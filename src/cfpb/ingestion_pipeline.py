@@ -1,230 +1,230 @@
-"""dlt Ingestion Pipeline
+"""CFPB complaint ingestion helpers.
 
-This pipeline extracts consumer complaint data from the CFPB API
-and loads it into DuckDB
+The pipeline extracts complaint records from the CFPB API, stores raw JSONL in
+MinIO, converts that raw data to bronze Parquet, and upserts it into DuckDB.
 """
 
-import logging
 import json
+import logging
 import os
-from datetime import datetime, timezone
-from typing import Any
 from collections.abc import Iterator
+from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
+import duckdb
 from dotenv import load_dotenv
 import pyarrow as pa
 import pyarrow.json as pajson
 import pyarrow.parquet as pq
 from pyarrow import fs
-import duckdb
 
 from .cfpb_client import CFPBClient
 
 
 logger = logging.getLogger(__name__)
-load_dotenv() # add env vars from .env to os.environ
+load_dotenv()
 
-CFPB_SCHEMA = pa.schema([
-    ("product", pa.string()),
-    ("complaint_what_happened", pa.string()),
-    ("date_sent_to_company", pa.timestamp("ms", tz="UTC")),
-    ("issue", pa.string()),
-    ("sub_product", pa.string()),
-    ("zip_code", pa.string()),
-    ("tags", pa.string()),
-    ("has_narrative", pa.bool_()),
-    ("complaint_id", pa.int64()),
-    ("timely", pa.string()),
-    ("company_response", pa.string()),
-    ("submitted_via", pa.string()),
-    ("company", pa.string()),
-    ("date_received", pa.timestamp("ms", tz="UTC")),
-    ("state", pa.string()),
-    ("company_public_response", pa.string()),
-    ("sub_issue", pa.string()),
-    ("extracted_at", pa.timestamp("ms", tz="UTC"))
-])
+DEFAULT_BUCKET = "raw"
+COMPLAINTS_PREFIX = "cfpb_complaints"
+DUCKDB_SCHEMA = "raw"
+
+CFPB_SCHEMA = pa.schema(
+    [
+        ("product", pa.string()),
+        ("complaint_what_happened", pa.string()),
+        ("date_sent_to_company", pa.timestamp("ms", tz="UTC")),
+        ("issue", pa.string()),
+        ("sub_product", pa.string()),
+        ("zip_code", pa.string()),
+        ("tags", pa.string()),
+        ("has_narrative", pa.bool_()),
+        ("complaint_id", pa.int64()),
+        ("timely", pa.string()),
+        ("company_response", pa.string()),
+        ("submitted_via", pa.string()),
+        ("company", pa.string()),
+        ("date_received", pa.timestamp("ms", tz="UTC")),
+        ("state", pa.string()),
+        ("company_public_response", pa.string()),
+        ("sub_issue", pa.string()),
+        ("extracted_at", pa.timestamp("ms", tz="UTC")),
+    ]
+)
 
 
-def extract_complaints(date) -> Iterator[list[dict[str, Any]]]:
-    """Extract complaints from CFPB API by date
+def extract_complaints(process_date: str) -> Iterator[list[dict[str, Any]]]:
+    """Yield CFPB complaints received on a single date.
 
     Args:
-        date (str): The date that the data was extracted
+        process_date: Date to fetch from the CFPB API, formatted as YYYY-MM-DD.
 
     Yields:
-        An enriched chunk of records
+        Chunks of complaint records with an ``extracted_at`` timestamp added.
     """
-    client = CFPBClient() # init the client
+    client = CFPBClient()
+    extracted_at = _utc_now_iso()
 
     try:
-    
-        logger.info(f"Extracting all complaints for the date {date}")
-        # extraction_timestamp = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
-        extraction_timestamp = (datetime.now(timezone.utc)
-            .isoformat(timespec="milliseconds")
-            .replace("+00:00", "Z"))
-
-        for chunk in client.get_complaints(date_received_min=date, date_received_max=date):
-            
-            # add "extracted_at" to each dict
-            enriched_chunk = [{**item, "extracted_at": extraction_timestamp} for item in chunk]
-            yield enriched_chunk  # yield enriched chunk
+        logger.info("Extracting complaints for %s", process_date)
+        for chunk in client.get_complaints(
+            date_received_min=process_date,
+            date_received_max=process_date,
+        ):
+            yield [{**complaint, "extracted_at": extracted_at} for complaint in chunk]
 
     finally:
-        client.close() # close the connection to the API client
+        client.close()
 
 
 def load_to_raw(
     complaints: list[dict[str, Any]],
-    date: str,
+    process_date: str,
     partition: int,
-    bucket_name: str = "raw"
-):
-    """Load complaints to raw bucket in MinIO
+    bucket_name: str = DEFAULT_BUCKET,
+) -> str:
+    """Write one complaint chunk to raw JSONL storage.
 
     Args:
-        complaints (list[dict[str, Any]]): list of complaints
-        date (str): the date the data was processed
-        partition (int): The nth partition is currently being written to
-        bucket_name (str, optional): Bucket name in MinIO. Defaults to "raw"
+        complaints: Complaint records to write.
+        process_date: Date partition for the output path.
+        partition: One-based chunk number.
+        bucket_name: MinIO bucket name.
+
+    Returns:
+        The object path written in MinIO.
     """
-    logger.info(f"Loading {len(complaints)} complaints to {bucket_name} bucket in MinIO")
-    minio_client = _get_minio_fs() # MinIO client
-    object_path = f"{bucket_name}/cfpb_complaints/{date}/part_{partition}.jsonl"
+    minio_client = _get_minio_fs()
+    object_path = _complaints_object_path(
+        bucket_name=bucket_name,
+        process_date=process_date,
+        partition=partition,
+        suffix="jsonl",
+    )
 
     try:
         with minio_client.open_output_stream(object_path) as out:
             for complaint in complaints:
                 out.write(json.dumps(complaint, ensure_ascii=False).encode("utf-8"))
                 out.write(b"\n")
-            print(f"Upload succesfully: {len(complaints)} complaints (Partition {partition})")
 
-    except Exception as e:
-        print(f"Error when uploading: {e}")
+    except Exception:
+        logger.exception("Failed to upload raw complaints to %s", object_path)
         raise
 
+    logger.info(
+        "Uploaded %s complaints to %s",
+        len(complaints),
+        object_path,
+    )
+    return object_path
 
-def load_to_bronze(
-    raw_prefix: str,
-    process_date: str,
-    partitions: int
-):
-    """Load data from raw layer (jsonl files) to bronze layer (parquet files)
+
+def load_to_bronze(raw_prefix: str, process_date: str, partitions: int) -> list[str]:
+    """Convert raw JSONL complaint files to bronze Parquet files.
 
     Args:
-        raw_prefix (str):  (e.g., raw/cfpb_complaints/{YYYY-MM-DD})
-        process_date (str): the date the data was processed
-        partitions (int): The data is partitioned into n files in bronze
-    """
+        raw_prefix: Prefix containing raw JSONL files, for example
+            ``raw/cfpb_complaints/YYYY-MM-DD``.
+        process_date: Date partition being processed.
+        partitions: Expected number of raw partitions.
 
-    # file selector
-    selector = fs.FileSelector(
+    Returns:
+        Paths of the Parquet files written.
+    """
+    logger.info(
+        "Converting %s raw partition(s) for %s from %s",
+        partitions,
+        process_date,
         raw_prefix,
-        recursive=False,
     )
 
+    selector = fs.FileSelector(raw_prefix, recursive=False)
     minio_client = _get_minio_fs()
+    parquet_paths: list[str] = []
+
     for info in minio_client.get_file_info(selector):
         if not info.path.endswith(".jsonl"):
             continue
 
-        # read data from raw 
         with minio_client.open_input_file(info.path) as f:
             table = pajson.read_json(f)
 
-        # normalize PyArrow table
         table = normalize_table(table, CFPB_SCHEMA)
+        output_path = info.path.replace("raw/", "bronze/").replace(".jsonl", ".parquet")
 
-        # write data to bronze 
-        output = (
-            info.path
-                .replace("raw/", "bronze/")
-                .replace(".jsonl", ".parquet")
-        )
-        with minio_client.open_output_stream(output) as out:
+        with minio_client.open_output_stream(output_path) as out:
             pq.write_table(table, out, compression="snappy")
+
+        parquet_paths.append(output_path)
+        logger.info("Wrote bronze parquet file to %s", output_path)
+
+    return parquet_paths
 
 
 def load_parquet_to_duckdb(
     parquet_path: str,
     database_path: str,
-    schema_name: str = "raw",
+    schema_name: str = DUCKDB_SCHEMA,
 ) -> dict[str, Any]:
-    """Load a parquet file into DuckDB natively, preserving merge/dedup logic.
-    
+    """Upsert Parquet complaint data into DuckDB.
+
     Args:
-        parquet_path: Path to the parquet file to load
-        database_path: Path to DuckDB database file
-        schema_name: Schema name for the data
-        
+        parquet_path: S3 path or glob for the Parquet files to load.
+        database_path: Path to the DuckDB database file.
+        schema_name: DuckDB schema name for the target table.
+
     Returns:
-        Dictionary with load info
+        Load summary with source and target record counts.
     """
-    # ensure the database directory exists
     db_path = Path(database_path)
     db_path.parent.mkdir(parents=True, exist_ok=True)
-    
-    with duckdb.connect(str(db_path.absolute())) as conn:
-        # httpfs extension for interacting file system
-        conn.execute("INSTALL httpfs; LOAD httpfs;")
 
-        # Authentication so that DuckDB can access MinIO
-        minio_access_key_id = os.environ["MINIO_ROOT_USER"]
-        minio_secret_access_key = os.environ["MINIO_ROOT_PASSWORD"]
-        minio_endpoint = os.environ.get("MINIO_ENDPOINT", "localhost:9000")
-        conn.execute(f"""
-            CREATE OR REPLACE SECRET minio_secret (
-                TYPE s3,
-                PROVIDER config,
-                KEY_ID {os.environ["MINIO_ROOT_USER"]},
-                SECRET {os.environ["MINIO_ROOT_PASSWORD"]},
-                REGION 'us-east-1',
-                USE_SSL false,
-                ENDPOINT '{minio_endpoint}',
-                URL_STYLE 'path'
-            );
-            """
-        )           
-            
-        # create schema
+    with duckdb.connect(str(db_path.absolute())) as conn:
+        conn.execute("INSTALL httpfs; LOAD httpfs;")
+        _configure_duckdb_minio_secret(conn)
+
         conn.execute(f"CREATE SCHEMA IF NOT EXISTS {schema_name};")
         table_name = f"{schema_name}.cfpb_complaints"
         table_exists = conn.execute(
             f"SELECT 1 FROM information_schema.tables WHERE table_schema = '{schema_name}' AND table_name = 'cfpb_complaints'"
         ).fetchone()
-        
+
         if not table_exists:
-            logger.info(f"Creating new table {table_name} with primary key 'complaint_id'")
-            # create table with schema
+            logger.info(
+                "Creating new table %s with primary key complaint_id", table_name
+            )
             conn.execute(f"""
                 CREATE TABLE {table_name} AS 
                 SELECT * FROM read_parquet('{parquet_path}') LIMIT 0;
             """)
-            conn.execute(f"ALTER TABLE {table_name} ADD PRIMARY KEY (complaint_id);") # add primary key
-            
-        # Merge/upsert logic
-        logger.info(f"Merging parquet files from S3: {parquet_path}")
+            conn.execute(f"ALTER TABLE {table_name} ADD PRIMARY KEY (complaint_id);")
+
+        logger.info("Merging Parquet data from %s", parquet_path)
         conn.execute(f"""
             INSERT OR REPLACE INTO {table_name} 
             SELECT * FROM read_parquet('{parquet_path}');
         """)
-        
-        # 
-        parquet_count = conn.execute(f"SELECT COUNT(*) FROM read_parquet('{parquet_path}')").fetchone()[0]
+
+        parquet_count = conn.execute(
+            f"SELECT COUNT(*) FROM read_parquet('{parquet_path}')"
+        ).fetchone()[0]
         total_count = conn.execute(f"SELECT COUNT(*) FROM {table_name}").fetchone()[0]
-        
-    logger.info(f"DONE! Total records in MinIO: {parquet_count}. Total records in DB: {total_count}")
-    # return {
-    #     "records_processed_from_s3": parquet_count,
-    #     "total_records_in_table": total_count,
-    #     "status": "success"
-    # }
+
+    logger.info(
+        "DuckDB load complete. Source records: %s. Total records in DB: %s",
+        parquet_count,
+        total_count,
+    )
+    return {
+        "records_processed_from_s3": parquet_count,
+        "total_records_in_table": total_count,
+        "status": "success",
+    }
 
 
 def normalize_table(table: pa.Table, schema: pa.Schema) -> pa.Table:
-    """Normalize a PyArrow table to the target schema"""
+    """Return ``table`` with exactly the columns and types in ``schema``."""
 
     arrays = []
 
@@ -232,31 +232,71 @@ def normalize_table(table: pa.Table, schema: pa.Schema) -> pa.Table:
         if field.name in table.column_names:
             column = table[field.name]
 
-            # Cast nếu kiểu dữ liệu khác
             if not column.type.equals(field.type):
                 column = column.cast(field.type)
 
             arrays.append(column)
         else:
-            # Nếu thiếu cột thì thêm cột null
             arrays.append(pa.nulls(len(table), type=field.type))
 
     return pa.Table.from_arrays(arrays, schema=schema)
 
 
-def _get_minio_fs():
-    """Initialize a MinIO client
+def _get_minio_fs() -> fs.S3FileSystem:
+    """Return an authenticated MinIO filesystem client."""
 
-    Returns:
-        Authenticated MinIO client
-    """
-    minio_fs = fs.S3FileSystem(
+    return fs.S3FileSystem(
         access_key=os.environ["MINIO_ROOT_USER"],
         secret_key=os.environ["MINIO_ROOT_PASSWORD"],
         scheme="http",
-        endpoint_override="localhost:9000"
+        endpoint_override=os.environ.get("MINIO_ENDPOINT", "localhost:9000"),
     )
-    return minio_fs
+
+
+def _complaints_object_path(
+    bucket_name: str,
+    process_date: str,
+    partition: int,
+    suffix: str,
+) -> str:
+    """Build an object path for a partitioned complaint file."""
+
+    return f"{bucket_name}/{COMPLAINTS_PREFIX}/{process_date}/part_{partition}.{suffix}"
+
+
+def _utc_now_iso() -> str:
+    """Return the current UTC timestamp in JSON-friendly ISO-8601 format."""
+
+    return (
+        datetime.now(timezone.utc)
+        .isoformat(timespec="milliseconds")
+        .replace("+00:00", "Z")
+    )
+
+
+def _configure_duckdb_minio_secret(conn: duckdb.DuckDBPyConnection) -> None:
+    """Configure DuckDB credentials for reading Parquet files from MinIO."""
+
+    minio_endpoint = os.environ.get("MINIO_ENDPOINT", "localhost:9000")
+    conn.execute(
+        """
+        CREATE OR REPLACE SECRET minio_secret (
+            TYPE s3,
+            PROVIDER config,
+            KEY_ID ?,
+            SECRET ?,
+            REGION 'us-east-1',
+            USE_SSL false,
+            ENDPOINT ?,
+            URL_STYLE 'path'
+        );
+        """,
+        [
+            os.environ["MINIO_ROOT_USER"],
+            os.environ["MINIO_ROOT_PASSWORD"],
+            minio_endpoint,
+        ],
+    )
 
 
 # if __name__ == "__main__":

@@ -6,7 +6,6 @@ API docs: https://cfpb.github.io/api/ccdb/api.html
 
 import logging
 from typing import Any, Iterator
-import json
 
 import requests
 from requests.adapters import HTTPAdapter
@@ -210,23 +209,24 @@ class CFPBClient:
 
 
 if __name__ == "__main__":
-    client = CFPBClient()
+    pass
+    # client = CFPBClient()
+    # # complaints = client.get_complaints(
+    # #     date_received_min="2026-04-01",
+    # #     date_received_max="2026-04-01",
+    # #     company="Kriya Capital, LLC"
+    # # )
     # complaints = client.get_complaints(
     #     date_received_min="2026-04-01",
     #     date_received_max="2026-04-01",
-    #     company="Kriya Capital, LLC"
     # )
-    complaints = client.get_complaints(
-        date_received_min="2026-04-01",
-        date_received_max="2026-04-01",
-    )
 
-    # with open("output.jsonl", "w", encoding="utf-8") as f:
-    #     for complaint in complaints:
-    #         f.write(json.dumps(complaint, ensure_ascii=False) + "\n")
+    # # with open("output.jsonl", "w", encoding="utf-8") as f:
+    # #     for complaint in complaints:
+    # #         f.write(json.dumps(complaint, ensure_ascii=False) + "\n")
 
-    with open("debug_data.json", "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=4)
+    # with open("debug_data.json", "w", encoding="utf-8") as f:
+    #     json.dump(data, f, ensure_ascii=False, indent=4)
 
-    # print(len(complaints))
-    client.close()
+    # # print(len(complaints))
+    # client.close()
