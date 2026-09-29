@@ -28,14 +28,11 @@ Examples:
 import argparse
 import logging
 import sys
-from pathlib import Path
 
 from src.orchestration.cfpb_flows import cfpb_complaints_incremental_flow
 
-
 logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
 
@@ -49,12 +46,12 @@ def main():
         "--database",
         type=str,
         default="database/cfpb_complaints.duckdb",
-        help="Path to DuckDB database file (default: database/cfpb_complaints.duckdb)"
+        help="Path to DuckDB database file (default: database/cfpb_complaints.duckdb)",
     )
     parser.add_argument(
         "--reset-state",
-        action="store_true", # if use this arg, its value is set to True
-        help="Reset state file to trigger initial load from START_DATE"
+        action="store_true",  # if use this arg, its value is set to True
+        help="Reset state file to trigger initial load from START_DATE",
     )
 
     args = parser.parse_args()
@@ -70,9 +67,7 @@ def main():
 
     try:
         logger.info("Starting ELT pipeline: Extract & Load -> Transform -> Test")
-        result = cfpb_complaints_incremental_flow(
-            database_path=args.database
-        ) # run the pipeline
+        result = cfpb_complaints_incremental_flow(database_path=args.database)  # run the pipeline
 
         if result is None:
             logger.error("Flow returned None - this should not happen")
@@ -93,9 +88,9 @@ def main():
             if dbt_status == "failed":
                 logger.warning("dbt transformations failed - check logs above")
                 return 1
-                
+
         return 0
-    
+
     except Exception as e:
         logger.error(f"Flow execution failed: {e}", exc_info=True)
         return 1
