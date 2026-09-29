@@ -2,10 +2,9 @@ name: Lint
 
 on:
   push:
-    branches: 'main'
+    branches: [ main, develop ]
   pull_request:
-    types: [ opened, synchronize, reopened ]
-    branches: 'main'
+    branches: [ main, develop ]
 
 jobs:
   lint:
@@ -26,10 +25,15 @@ jobs:
           python-version: '3.10'
       
       - name: Install dependencies
-        runs: uv sync --extra dev
+        run: uv sync --extra dev
 
       - name: Run ruff check
-        runs: uv run ruff check .
+        run: uv run ruff check .
 
       - name: Run ruff format check
-        runs: uv run ruff --check format .
+        run: uv run ruff --check format .
+
+      - name: Validate dbt Charts
+        run: |
+          uv run dbt parse --project-dir cfpb_complaints --profiles-dir cfpb_complaints
+          uv run dct validate --project-dir cfpb_complaints
