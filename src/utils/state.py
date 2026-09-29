@@ -42,7 +42,7 @@ def get_next_load_date(start_date: str) -> tuple[str, str]:
         last_date_obj = datetime.strptime(last_date, "%Y-%m-%d")
         next_date_obj = last_date_obj + timedelta(days=1)
         next_date = next_date_obj.strftime("%Y-%m-%d")
-        
+
         logger.info(f"Incremental load: {next_date} to {today}")
         return next_date, today
 
@@ -55,7 +55,7 @@ def get_last_loaded_date() -> str | None:
     """
     if not STATE_FILE.exists():
         return None
-    
+
     try:
         with open(STATE_FILE) as f:
             state = json.load(f)
@@ -67,7 +67,7 @@ def get_last_loaded_date() -> str | None:
 
 def update_last_loaded_date(date: str) -> None:
     """Update the last successfully loaded date in state file.
-    
+
     Args:
         date: Date string (YYYY-MM-DD)
     """

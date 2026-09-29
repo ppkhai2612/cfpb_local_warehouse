@@ -16,17 +16,15 @@ from typing import Any
 from prefect import flow, task
 from pyarrow import parquet as pq
 
-from ..cfg.config import START_DATE, COMPANIES
-from ..pipelines.cfpb_complaints_pipeline import save_to_parquet, load_parquet_to_duckdb
+from ..cfg.config import COMPANIES, START_DATE
+from ..pipelines.cfpb_complaints_pipeline import load_parquet_to_duckdb, save_to_parquet
 from ..utils.state import get_next_load_date, update_last_loaded_date
 
 logger = logging.getLogger(__name__)
 
 
 @task(name="extract_to_parquet", log_prints=True)
-def extract_to_parquet_task(
-    date_min: str, date_max: str, company_name: str
-) -> str | None:
+def extract_to_parquet_task(date_min: str, date_max: str, company_name: str) -> str | None:
     """Prefect task to extract complaints and save as parquet.
 
     Args:
@@ -37,9 +35,7 @@ def extract_to_parquet_task(
     Returns:
         Path to the parquet file, or None if no records
     """
-    logger.info(
-        f"Extracting complaints for {company_name}: {date_min} to {date_max}..."
-    )
+    logger.info(f"Extracting complaints for {company_name}: {date_min} to {date_max}...")
     parquet_path = save_to_parquet(
         date_received_min=date_min,
         date_received_max=date_max,
@@ -62,9 +58,7 @@ def load_parquet_to_duckdb_task(
         Dictionary with execution results
     """
     logger.info(f"Loading parquet {parquet_path} into DuckDB")
-    result = load_parquet_to_duckdb(
-        parquet_path=parquet_path, database_path=database_path
-    )
+    result = load_parquet_to_duckdb(parquet_path=parquet_path, database_path=database_path)
     logger.info("Completed loading parquet into DuckDB")
     return {
         "status": "success",
@@ -223,9 +217,7 @@ def cfpb_complaints_incremental_flow(
             "last_date": date_max,
         }
 
-    logger.info(
-        f"Loading data for {len(COMPANIES)} companies from {date_min} to {date_max}"
-    )
+    logger.info(f"Loading data for {len(COMPANIES)} companies from {date_min} to {date_max}")
 
     # Extract to parquet, then load into DuckDB for each company
     results = []

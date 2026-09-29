@@ -13,20 +13,16 @@ from pathlib import Path
 from typing import Any
 
 import dlt
-from dlt.destinations import duckdb
 import pyarrow as pa
 import pyarrow.parquet as pq
+from dlt.destinations import duckdb
 
 from ..apis.cfpb_api_client import CFPBAPIClient
 
 logger = logging.getLogger(__name__)
 
 
-@dlt.resource(
-    name="cfpb_complaints",
-    write_disposition="merge",
-    primary_key="complaint_id"
-)
+@dlt.resource(name="cfpb_complaints", write_disposition="merge", primary_key="complaint_id")
 def extract_complaints(
     date_received_min: str | None = None,
     date_received_max: str | None = None,
@@ -62,7 +58,7 @@ def extract_complaints(
                 date_received_max=date_received_max,
                 max_records=max_records,
             )
-        
+
         # Add extraction metadata
         extraction_timestamp = datetime.now().isoformat()
 
@@ -100,7 +96,7 @@ def save_to_parquet(
     company_name: str,
     max_records: int | None = None,
     landing_dir: str = "landing/cfpb_complaints",
-    landing_date: str | None = None
+    landing_date: str | None = None,
 ) -> str | None:
     """Extract complaints from the CFPB API and save as a parquet file.
 
@@ -111,7 +107,7 @@ def save_to_parquet(
         max_records: Maximum number of records to fetch
         landing_dir: Directory to write parquet files
         landing_date: Date for the landing subdirectory (YYYY-MM-DD). Defaults to today.
-    
+
     Returns:
         Path to the written parquet file, or None if no records were extracted.
     """
@@ -163,7 +159,7 @@ def load_parquet_to_duckdb(
         parquet_path: Path to the parquet file to load
         database_path: Path to DuckDB database file
         schema_name: Schema name for the data
-    
+
     Returns:
         Dictionary with load info
     """
@@ -173,11 +169,7 @@ def load_parquet_to_duckdb(
 
     pipeline = create_pipeline()
 
-    @dlt.resource(
-        name="cfpb_complaints",
-        write_disposition="merge",
-        primary_key="complaint_id"
-    )
+    @dlt.resource(name="cfpb_complaints", write_disposition="merge", primary_key="complaint_id")
     def parquet_source() -> Iterator[dict[str, Any]]:
         yield from records
 
@@ -191,7 +183,7 @@ def create_pipeline(
     schema_name: str = "raw",
 ) -> dlt.Pipeline:
     """Create and configure the dlt pipeline for CFPB complaints.
-    
+
     Args:
         database_path: Path to DuckDB database file
         schema_name: Schema name for the data (default: raw)
@@ -210,5 +202,5 @@ def create_pipeline(
         destination=duckdb(credentials=str(db_path.absolute())),
         dataset_name=schema_name,
     )
-    
+
     return pipeline

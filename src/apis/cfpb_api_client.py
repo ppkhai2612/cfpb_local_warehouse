@@ -14,6 +14,7 @@ from typing import Any
 import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
+
 # from urllib.parse import urlencode, quote
 
 logger = logging.getLogger(__name__)
@@ -37,40 +38,42 @@ class CFPBAPIClient:
 
     def _create_session(self) -> requests.Session:
         """Create a requests session with retry logic and proper headers.
-        
+
         Returns:
             Configured requests session
         """
         session = requests.Session()
 
         # CRITICAL: Add User-Agent header (CFPB API requires this to avoid 403 errors)
-        session.headers.update({
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
-            "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36",
-            "Accept-Encoding": "gzip, deflate, br, zstd",
-            "Accept-Language": "en,fr-FR;q=0.9,fr;q=0.8,en-US;q=0.7,vi;q=0.6,zh-CN;q=0.5,zh;q=0.4",
-            "Cache-Control": "max-age=0",
-            "Cookie": "csrftoken=5UfhGNcBGAqeLxBvPquQjr8NpIDk1BSV; _gid=GA1.2.1666023361.1777088439; _ga_CSLL4ZEK4L=GS2.1.s1777088440$o77$g1$t1777088448$j52$l0$h0; _ga=GA1.2.65263089.1774325663; _ga_CMRC03R7CT=GS2.1.s1777088439$o78$g1$t1777088448$j51$l0$h0",
-            "If-None-Match": '"e221081a0c480267174853427fb150df"',
-            "Priority": "u=0, i",
-            "Sec-Ch-Ua": '"Google Chrome";v="137", "Chromium";v="137", "Not/A)Brand";v="24"',
-            "Sec-Ch-Ua-Platform": '"Linux"',
-            "Sec-Fetch-Dest": "document",
-            "Sec-Fetch-Mode": "navigate",
-            "Sec-Fetch-Site": "none",
-            "Sec-Fetch-User": "?1",
-            "Upgrade-Insecure-Requests": "1"
-        })
+        session.headers.update(
+            {
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
+                "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36",
+                "Accept-Encoding": "gzip, deflate, br, zstd",
+                "Accept-Language": "en,fr-FR;q=0.9,fr;q=0.8,en-US;q=0.7,vi;q=0.6,zh-CN;q=0.5,zh;q=0.4",
+                "Cache-Control": "max-age=0",
+                "Cookie": "csrftoken=5UfhGNcBGAqeLxBvPquQjr8NpIDk1BSV; _gid=GA1.2.1666023361.1777088439; _ga_CSLL4ZEK4L=GS2.1.s1777088440$o77$g1$t1777088448$j52$l0$h0; _ga=GA1.2.65263089.1774325663; _ga_CMRC03R7CT=GS2.1.s1777088439$o78$g1$t1777088448$j51$l0$h0",
+                "If-None-Match": '"e221081a0c480267174853427fb150df"',
+                "Priority": "u=0, i",
+                "Sec-Ch-Ua": '"Google Chrome";v="137", "Chromium";v="137", "Not/A)Brand";v="24"',
+                "Sec-Ch-Ua-Platform": '"Linux"',
+                "Sec-Fetch-Dest": "document",
+                "Sec-Fetch-Mode": "navigate",
+                "Sec-Fetch-Site": "none",
+                "Sec-Fetch-User": "?1",
+                "Upgrade-Insecure-Requests": "1",
+            }
+        )
 
         # Retry configuration
         retry_strategy = Retry(
             total=self.MAX_RETRIES,
             backoff_factor=1,
             status_forcelist=[429, 500, 502, 503, 504],
-            allowed_methods=["GET"]
+            allowed_methods=["GET"],
         )
 
-        adapter =  HTTPAdapter(max_retries=retry_strategy)
+        adapter = HTTPAdapter(max_retries=retry_strategy)
         session.mount("https://", adapter)
         session.mount("http://", adapter)
 
@@ -89,7 +92,7 @@ class CFPBAPIClient:
         **filters,
     ) -> dict[str, Any]:
         """Fetch consumer complaints from the CFPB API.
-        
+
         Args:
             date_received_min: Minimum date received (YYYY-MM-DD)
             date_received_max: Maximum date received (YYYY-MM-DD)
@@ -100,7 +103,7 @@ class CFPBAPIClient:
             field: Field to search in (e.g., 'company')
             no_aggs: Disable aggregations for faster responses
             **filters: Additional filter parameters (product, company, state, etc.)
-        
+
         Returns:
             API response as dictionary
 
@@ -125,7 +128,7 @@ class CFPBAPIClient:
             params["search_term"] = search_term
         if field:
             params["field"] = field
-        
+
         # Add no_aggs flag
         if no_aggs:
             params["no_aggs"] = "true"
@@ -159,7 +162,7 @@ class CFPBAPIClient:
                 )
             else:
                 logger.warning(f"Unexpected response format: {type(data)}")
-            
+
             return data
 
         except requests.RequestException as e:
@@ -171,10 +174,10 @@ class CFPBAPIClient:
         date_received_min: str | None = None,
         date_received_max: str | None = None,
         max_records: int | None = None,
-        **filters
+        **filters,
     ) -> list[dict[str, Any]]:
         """Fetch all complaints with pagination support.
-        
+
         Args:
             date_received_min: Minimum received date (YYYY-MM-DD)
             date_received_max: Maximum received date (YYYY-MM-DD)
@@ -200,7 +203,7 @@ class CFPBAPIClient:
                 date_received_max=date_received_max,
                 size=page_size,
                 search_after=search_after,
-                **filters
+                **filters,
             )
 
             # Handle different response formats
@@ -236,7 +239,7 @@ class CFPBAPIClient:
                 all_complaints = all_complaints[:max_records]
                 logger.info(f"Truncated to max_records limit: {max_records}")
                 break
-            
+
             # Check if there are more results
             if len(all_complaints) >= total_available:
                 logger.info("Fetched all available complaints")
@@ -246,7 +249,7 @@ class CFPBAPIClient:
             search_after_lst = hits[-1].get("sort", [])
             search_after_lst[0] = str(search_after_lst[0])
             search_after = "_".join(search_after_lst)
-        
+
         logger.info(f"Total complaints fetched: {len(all_complaints)}")
         return all_complaints
 
@@ -322,7 +325,7 @@ class CFPBAPIClient:
         return self.get_complaints_for_date_range(
             start_date=start_date, end_date=end_date, **filters
         )
-        
+
     def close(self):
         """Close the API client session."""
         if self.session:
@@ -356,4 +359,3 @@ if __name__ == "__main__":
         max_records=10,
     )
     print(complaints[1])
-    

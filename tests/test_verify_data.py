@@ -44,16 +44,16 @@ def table_name():
 
 class TestDatabaseExists:
     """Test that the database file exists."""
-    
+
     def test_database_file_exists(self, db_path):
         """Test that the database file exists."""
         assert os.path.exists(db_path), f"Database file should exist at {db_path}"
-        assert os.path.getsize(db_path) > 0, f"Database file should not be empty"
+        assert os.path.getsize(db_path) > 0, "Database file should not be empty"
 
 
 class TestTableStructure:
     """Test the structure of the loaded table."""
-    
+
     def test_table_exists(self, db_connection, schema_name, table_name):
         """Test that the table exists in the database."""
         result = db_connection.execute(
@@ -89,7 +89,7 @@ class TestTableStructure:
             WHERE table_schema = '{schema_name}' AND table_name = '{table_name}'
             ORDER BY ordinal_position
             """
-        ).fetchall() # list of tuples
+        ).fetchall()  # list of tuples
 
         column_names = [col[0] for col in columns]
         required_columns = ["complaint_id", "date_received", "company", "product"]
@@ -100,7 +100,7 @@ class TestTableStructure:
 
 class TestDataContent:
     """Test the content of the loaded data."""
-    
+
     def test_table_has_records(self, db_connection, schema_name, table_name):
         """Test that the table has records."""
         count = db_connection.execute(
