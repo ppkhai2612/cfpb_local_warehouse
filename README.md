@@ -9,7 +9,7 @@ A local-first data warehouse pipeline that extracts CFPB consumer complaint data
 - **Transformation & Documentation**: [dbt](docs/4_dbt.md) & [dbt-colibri](docs/4_dbt.md)
 - **Orchestration**: [Prefect](docs/5_prefect.md)
 - **BI Tool**: [dbt Charts](docs/6_dbt_charts.md)
-- **CI/CD**: [Github Action](docs/8_github_action.md)
+- **CI/CD**: [Github Action](docs/7_github_action.md)
 
 ![](images/architecture.png)
 
