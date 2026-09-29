@@ -1,180 +1,105 @@
 # CFPB Local Data Warehouse
 
-## Purpose
+A local-first data warehouse pipeline that extracts CFPB consumer complaint data, transforms it with dbt into analytics-ready models, and serves interactive dashboards—all running on your laptop with zero cloud dependencies.
 
-This project builds a local analytics warehouse for Consumer Financial Protection Bureau (CFPB) consumer complaint data. It extracts complaint records from the CFPB API, lands the raw data in MinIO, converts the files to Parquet, loads them into DuckDB, transforms them with dbt, and exposes the final marts through a Streamlit dashboard.
+- **Package Manager**: [uv](https://docs.astral.sh/uv/) (Python)
+- **Ingestion**: [dlt](docs/1_dlt.md) + [PyArrow](docs/2_pyarrow.md) (API -> Parquet staging -> DuckDB)
+- **Staging Format**: [Parquet](docs/2_pyarrow.md) (via PyArrow) in `landing/`
+- **OLAP Database**: [DuckDB](docs/3_duckdb.md)
+- **Transformation & Documentation**: [dbt](docs/4_dbt.md) & [dbt-colibri](docs/4_dbt.md)
+- **Orchestration**: [Prefect](docs/5_prefect.md)
+- **BI Tool**: [dbt Charts](docs/6_dbt_charts.md)
+- **CI/CD**: [Github Action](docs/8_github_action.md)
 
-The project is designed as a small end-to-end data platform that can run on a local
-machine. It demonstrates how to:
+![](images/architecture.png)
 
-- Ingest API data incrementally by complaint received date.
-- Store raw and bronze data in object storage.
-- Load analytical data into DuckDB for local OLAP workloads.
-- Use dbt to build staging, intermediate, fact, dimension, and aggregate models.
-- Orchestrate the workflow with Airflow.
-- Explore complaint trends in a Streamlit app.
+## 1. Quick Start
 
-The main dataset is the CFPB Consumer Complaint Database.
-
-## Architecture And Data Stack
-
-![Project architecture](images/architecture.png)
-
-> The decisions made when designing the pipeline are documented at [design.md](docs/design.md)
-
-### Data Flow
-
-```text
-CFPB API
-  -> raw JSONL files in MinIO
-  -> bronze Parquet files in MinIO
-  -> DuckDB raw.cfpb_complaints
-  -> dbt staging/intermediate/marts models
-  -> Streamlit dashboards
-```
-
-### Project Components
-
-- `src/cfpb/cfpb_client.py`: CFPB API client with pagination support.
-- `src/cfpb/ingestion_pipeline.py`: ingestion helpers for raw, bronze, and DuckDB loads.
-- `airflow/dags/cfpb_complaint_dag.py`: daily Airflow DAG that orchestrates the pipeline.
-- `dbt_cfpb/models/`: dbt models for staging, intermediate logic, and marts.
-- `streamlit/app.py`: dashboard app that reads from the DuckDB marts schema.
-- `database/cfpb_complaints.duckdb`: local DuckDB database created by the pipeline.
-- `docker-compose.yml`: local MinIO service with `raw` and `bronze` buckets.
-
-### Tools Used
-
-- Python and `uv` for dependency management.
-- `requests` for CFPB API calls.
-- PyArrow for JSONL and Parquet processing.
-- MinIO for local S3-compatible object storage.
-- DuckDB for the local analytical database.
-- dbt Core and dbt DuckDB for transformations.
-- Airflow for orchestration.
-- Streamlit and Plotly for dashboards.
-
-## How To Run The Project
-
-### 1. Install Dependencies
-
-Install the Python dependencies from the project root:
+### 1.1. Setup
 
 ```bash
+# Install dependencies
+uv sync
+
+# Install dev dependencies (for testing)
 uv sync --extra dev
 ```
 
-### 2. Configure Environment Variables
+### 1.2. Configuration
 
-Create a `.env` file in the project root:
+Edit [src/cfg/config.py](src/cfg/config.py) to configure companies and start date:
+
+```python
+START_DATE = "2023-01-01"
+COMPANIES = ["jpmorgan", "bank of america"]
+```
+
+### 1.3. Run the Pipeline
 
 ```bash
-MINIO_ROOT_USER="minioadmin"
-MINIO_ROOT_PASSWORD="minioadmin"
-AIRFLOW_USERNAME="admin"
-AIRFLOW_PASSWORD="admin"
+# Run incremental pipeline (first run loads from START_DATE to today)
+uv run python run_prefect_flow.py
+
+# Reset state to reload from START_DATE
+uv run python run_prefect_flow.py --reset-state
 ```
 
-The current MinIO service uses an AIStor image and expects a license file at:
+### 1.4. Backfill Landing Area
 
-```text
-$HOME/minio/minio.license
-```
 
-If you use a different MinIO image, update `docker-compose.yml` accordingly.
 
-### 3. Start MinIO
+### 1.5. Access Prefect UI (Optional)
 
 ```bash
-docker compose up -d
+# Start Prefect server
+./start_prefect_server.sh
+
+# Access UI at http://127.0.0.1:4200
 ```
 
-MinIO will create two buckets automatically:
+![](images/prefect_ui.png)
 
-- `raw`
-- `bronze`
+### 1.6. Access DuckDB UI
 
-MinIO Console: `http://localhost:9001`
-
-### 4. Start Airflow
+Launch the DuckDB UI:
 
 ```bash
-./start_airflow.sh
+# run workflow first
+duckdb -ui database/cfpb_complaints.duckdb
+
+# Access UI at http://localhost:4213
 ```
 
-Airflow runs at:
+![](images/duckdb_ui.png)
 
-```text
-http://localhost:8081
-```
+### 1.7. Access dbt Charts Dashboards
 
-Sign in with the `AIRFLOW_USERNAME` and `AIRFLOW_PASSWORD` values from `.env`.
 
-### 5. Run The Ingestion Pipeline
+### 1.8. Generate dbt Lineage Reports with Colibri
 
-Open Airflow and unpause the DAG:
-
-```text
-cfpb_complaint_daily_dag
-```
-
-The DAG is scheduled daily. For each run, it processes complaints for the previous
-logical date and performs these tasks:
-
-1. Extract CFPB complaints and write JSONL files to `raw/cfpb_complaints/<date>/`.
-2. Convert raw JSONL files to Parquet files in `bronze/cfpb_complaints/<date>/`.
-3. Upsert bronze Parquet records into `raw.cfpb_complaints` in DuckDB.
-4. Run dbt models.
-5. Run dbt tests.
-
-For screenshots and examples of normal runs, catchup runs, and backfills, see
-[`docs/run_dag_guide.md`](docs/run_dag_guide.md).
-
-### 6. Run dbt Manually
-
-The Airflow DAG runs dbt automatically, but you can also run dbt from the project root:
+Generate interactive data lineage reports to visualize how data flows through your dbt models:
 
 ```bash
-cd dbt_cfpb
-uv run dbt run
-uv run dbt test
+# Navigate to the dbt project directory
+cd cfpb_complaints
+
+# Compile models and generate dbt documentation
+dbt compile && dbt docs generate
+
+# Generate lineage report
+colibri generate
 ```
 
-The dbt profile points to:
+Open `cfpb_complaints/dist/index.html` in your browser to explore the interactive lineage visualization showing model dependencies, data flow, and column-level lineage.
 
-```text
-../database/cfpb_complaints.duckdb
-```
-
-### 7. Start The Dashboard
-
-After the DAG and dbt models have run successfully, start Streamlit:
+## 2. Testing
 
 ```bash
-uv run streamlit run streamlit/app.py
-```
-
-By default, Streamlit runs at:
-
-```text
-http://localhost:8501
-```
-
-### 8. Run Tests
-
-```bash
+# Run python tests
 uv run pytest tests/
 ```
-
-You can also run linting and formatting checks:
-
 ```bash
-uv run ruff check .
-uv run ruff format --check .
+# Run dbt tests
+cd cfpb_complaints
+dbt test
 ```
-
-## Notes
-
-- If the Airflow DAG has `catchup=True`, so a newly unpaused DAG may create historical runs from its configured `start_date`.
-- Raw and bronze data are stored in MinIO; modeled analytics tables are stored in DuckDB.
-- The Streamlit dashboard expects dbt mart tables under the `marts` schema.
