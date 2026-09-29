@@ -183,7 +183,11 @@ def run_dbt_tests_task() -> dict[str, Any]:
         return {"status": "warning", "error": error_msg}
 
 
-@flow
+@flow(
+    name="cfpb-complaints-incremental",
+    description="Incremental load of CFPB complaints with dbt transformations",
+    log_prints=True,
+)
 def cfpb_complaints_incremental_flow(
     database_path: str = "database/cfpb_complaints.duckdb",
 ) -> dict[str, Any]:
