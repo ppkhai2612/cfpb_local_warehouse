@@ -1,3 +1,9 @@
+{{
+    config(
+        materialized='table'
+    )
+}}
+
 with company_stats as (
     select
         company,
@@ -5,11 +11,9 @@ with company_stats as (
         -- complaint counts
         count(*) as total_complaints,
         countif(is_timely_response) as timely_responses,
-        countif(has_narrative) as complaints_with_narrative,
 
         -- percentages        
         round(countif(is_timely_response) / count(*) * 100.0, 2) as pct_timely,
-        round(100.0 * count_if(has_narrative) / count(*), 2) as pct_with_narrative,
 
         -- response time metrics
         round(avg(days_to_response), 2) as avg_days_to_response,

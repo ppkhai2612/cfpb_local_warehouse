@@ -1,3 +1,9 @@
+{{
+    config(
+        materialized='table'
+    )
+}}
+
 with final as (
 
     select
@@ -26,10 +32,8 @@ with final as (
         -- metrics
         days_to_response,
         is_timely_response,
-        has_narrative,
 
         -- text (for detailed analysis)
-        complaint_what_happened,
         tags
 
     from {{ ref('int_cfpb__complaint_metrics') }}

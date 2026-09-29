@@ -1,28 +1,24 @@
+{{
+    config(
+        materialized='table'
+    )
+}}
 
-with state_stats as (
+with response_stats as (
 
     select
-        state,
+        company_response,
 
         -- complaint counts
         count(*) as total_complaints,
         count(distinct company) as unique_companies,
         count(distinct product) as unique_products,
-        count(distinct issue) as unique_issues,
-        count(distinct zip_code) as unique_zip_codes,
-
-        -- metrics
-        -- count_if(is_consumer_disputed) as disputed_complaints,
-        -- round(100.0 * count_if(is_consumer_disputed) / count(*), 2) as pct_disputed_complaints,
+        count(distinct state) as unique_states,
         
         -- timely reponse metrics
         count_if(is_timely_response) as timely_responses,
         round(100.0 * count_if(is_timely_response) / count(*), 2) as pct_timely,
-        
-        -- narrative metrics
-        count_if(has_narrative) as complaints_with_narrative,
-        round(100.0 * count_if(has_narrative) / count(*), 2) as pct_with_narrative,
-        
+
         -- response time metrics
         round(avg(days_to_response), 2) as avg_days_to_response,
         median(days_to_response) as median_days_to_response,
@@ -34,16 +30,15 @@ with state_stats as (
         max(date_received) as last_complaint_date,
         
         -- most common metrics
-        mode() within group (order by issue) as most_commmon_issue,
         mode() within group (order by product) as most_common_product,
-        mode() within group (order by submitted_via) as most_common_submission_method,
+        mode() within group (order by issue) as most_common_issue,
         mode() within group (order by company) as most_complained_company
 
     from {{ ref('int_cfpb__complaint_metrics') }}
-    where state is not null
-    group by state
+    where company_response is not null
+    group by company_response
 )
 
 select *
-from state_stats
+from response_stats
 order by total_complaints desc

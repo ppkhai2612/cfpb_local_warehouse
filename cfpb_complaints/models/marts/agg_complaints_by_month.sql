@@ -21,10 +21,6 @@ with monthly_stats as (
         count_if(is_timely_response) as timely_responses,
         round(100.0 * count_if(is_timely_response) / count(*), 2) as pct_timely,
 
-        -- narrative metrics
-        count_if(has_narrative) as complaints_with_narrative,
-        round(100.0 * count_if(has_narrative) / count(*), 2) as pct_with_narrative,
-
         -- response time
         round(avg(days_to_response), 2) as avg_days_to_response,
         median(days_to_response) as median_days_to_response

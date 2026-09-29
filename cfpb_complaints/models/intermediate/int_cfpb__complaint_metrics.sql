@@ -8,7 +8,7 @@ with enriched as (
     select
         *,
 
-        -- no. days to forward complaint to company
+        -- calculate days to company response
         datediff('day', date_received, date_sent_to_company) as days_to_response,
 
         -- flag for timely response
