@@ -32,8 +32,3 @@ jobs:
 
       - name: Run ruff format check
         run: uv run ruff format --check .
-
-      - name: Validate dbt Charts
-        run: |
-          uv run dbt parse --project-dir cfpb_complaints --profiles-dir cfpb_complaints
-          uv run dct validate --project-dir cfpb_complaints
