@@ -96,7 +96,7 @@ def save_to_parquet(
     company_name: str,
     max_records: int | None = None,
     landing_dir: str = "landing/cfpb_complaints",
-    landing_date: str | None = None,
+    is_backfill: bool | None = None,
 ) -> str | None:
     """Extract complaints from the CFPB API and save as a parquet file.
 
@@ -106,7 +106,7 @@ def save_to_parquet(
         company_name: Company name to filter
         max_records: Maximum number of records to fetch
         landing_dir: Directory to write parquet files
-        landing_date: Date for the landing subdirectory (YYYY-MM-DD). Defaults to today.
+        is_backfill: Whether the ingestion pipeline currently backfilling.
 
     Returns:
         Path to the written parquet file, or None if no records were extracted.
@@ -120,12 +120,14 @@ def save_to_parquet(
         )
     )
 
-    if landing_date:
-        dir_date = datetime.strptime(landing_date, "%Y-%m-%d")
-    else:
-        dir_date = datetime.now()
+    dir_date = datetime.now()
     daily_dir = dir_date.strftime("%Y_%m_%d")
-    landing_path = Path(landing_dir) / daily_dir
+
+    if is_backfill:
+        landing_path = Path(landing_dir) / f"{daily_dir}_backfill"
+    else:
+        landing_path = Path(landing_dir) / daily_dir
+
     landing_path.mkdir(parents=True, exist_ok=True)
 
     safe_company = _sanitize_filename(company_name)

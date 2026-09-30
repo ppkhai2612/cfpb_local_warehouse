@@ -46,7 +46,35 @@ uv run python run_prefect_flow.py --reset-state
 
 ### 1.4. Backfill Landing Area
 
+Use the backfill script to populate historical data:
 
+```bash
+# Backfill a date range
+uv run python run_backfill.py --start 2026-01-01 --end 2026-02-25
+
+# Backfill a single day
+uv run python run_backfill.py --start 2026-01-15 --end 2026-01-15
+
+# Backfill last 7 days
+uv run python run_backfill.py --days 7
+```
+
+Each daily directory (`_backfill` suffix for backfill pipelines) contains N * M parquet files (N is the numbers of configured companies, M is data time range for that company). Empty parquet files are created for days with no complaints to maintain a consistent structure.
+
+```bash
+landing/
+└── cfpb_complaints
+    └── 2026_09_28              # incremental pipeline
+        ├── bank_of_america_2023-01-01_2026-09-28.parquet
+        ├── capital_one_2023-01-01_2026-09-28.parquet
+        ...
+    └── 2026_09_30_backfill     # backfill pipeline
+        ├── bank_of_america_2026-09-01_2026-09-01.parquet
+        ├── bank_of_america_2026-09-01_2026-09-03.parquet
+        ├── capital_one_2026-09-01_2026-09-01.parquet
+        ├── capital_one_2026-09-01_2026-09-03.parquet
+        ...
+```
 
 ### 1.5. Access Prefect UI (Optional)
 
