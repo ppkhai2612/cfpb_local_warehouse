@@ -52,5 +52,5 @@ Run SQL models by layers
 
 Run tests on dbt models
 
-## 7. Serve dashboards with dbt Charts
+## 7. Serve dashboards with Streamlit
 

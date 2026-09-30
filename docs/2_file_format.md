@@ -1,4 +1,4 @@
-# Why PyArrow?
+# File Format in Landing Area (PyArrow & Parquet)
 
 ## Role in the pipeline
 

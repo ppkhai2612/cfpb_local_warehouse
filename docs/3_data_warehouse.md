@@ -1,4 +1,4 @@
-# DuckDB Documentation
+# Data Warehouse (DuckDB)
 
 ## 1. Overview
 

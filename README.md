@@ -3,13 +3,13 @@
 A local-first data warehouse pipeline that extracts CFPB consumer complaint data, transforms it with dbt into analytics-ready models, and serves interactive dashboards—all running on your laptop with zero cloud dependencies.
 
 - **Package Manager**: [uv](https://docs.astral.sh/uv/) (Python)
-- **Ingestion**: [dlt](docs/1_dlt.md) + [PyArrow](docs/2_pyarrow.md) (API -> Parquet staging -> DuckDB)
-- **Staging Format**: [Parquet](docs/2_pyarrow.md) (via PyArrow) in `landing/`
-- **OLAP Database**: [DuckDB](docs/3_duckdb.md)
-- **Transformation & Documentation**: [dbt](docs/4_dbt.md) & [dbt-colibri](docs/4_dbt.md)
-- **Orchestration**: [Prefect](docs/5_prefect.md)
-- **BI Tool**: [dbt Charts](docs/6_dbt_charts.md)
-- **CI/CD**: [Github Action](docs/7_github_action.md)
+- **Ingestion**: [dlt](docs/1_ingestion.md) (API -> Parquet staging -> DuckDB)
+- **Staging Format**: [Parquet](docs/2_file_format.md) (via [PyArrow](docs/2_file_format.md)) in `landing/`
+- **OLAP Database**: [DuckDB](docs/3_data_warehouse.md)
+- **Transformation & Documentation**: [dbt](docs/4_transformation.md) & [dbt-colibri](docs/4_transformation.md)
+- **Orchestration**: [Prefect](docs/5_orchestration.md)
+- **BI Tool**: [Streamlit](docs/6_dashboard.md)
+- **CI/CD**: [Github Action](docs/7_cicd.md)
 
 ![](images/architecture.png)
 
@@ -72,8 +72,13 @@ duckdb -ui database/cfpb_complaints.duckdb
 
 ![](images/duckdb_ui.png)
 
-### 1.7. Access dbt Charts Dashboards
+### 1.7. Access Streamlit Dashboards
 
+```bash
+uv run streamlit run app/dashboard/home.py
+```
+
+The dashboard will open automatically in your default browser at http://localhost:8501
 
 ### 1.8. Generate dbt Lineage Reports with Colibri
 
@@ -103,3 +108,21 @@ uv run pytest tests/
 cd cfpb_complaints
 dbt test
 ```
+
+## 3. Dashboards
+
+**Executive Summary**:
+
+![](images/executive_summary.png)
+
+**Company Performance**:
+
+![](images/company_performance.png)
+
+**Product Friction Points**:
+
+![](images/product_issues.png)
+
+**Geographic Trends**:
+
+![](images/geographic_trends.png)
